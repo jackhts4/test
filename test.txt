@@ -1,0 +1,76 @@
+1. User place bet
+
+2a. if it is first 5 bet
+    add 40% of betsize to userPool
+    add 58% of betsize to sharePool
+    add 2% of betsize is burnt
+
+3. winnablePot = 0.2 * sharePool - betSize
+    maxWinnable = betSize * betPathMultiplier
+    winPercentage = winnableAmount / maxWinnableAmount
+    betPath = getBetPath()
+    if 58% bet size + 20% pot < bet size
+        then he cannot get bj or draw/22
+
+4. Get if user should win/lose/draw
+    get dealer point first and usee player card to adjust according to dealer
+    to get a double, those 2 cards cannot contain an Ace
+    draw = win
+    1. LOSE(player must lose):
+        player: without double/split/bj, 3-20/22+ which smaller than dealer valid hand
+        dealer: hands = 17-21 > player, beware dealer cannot hit at 17
+
+    2. 22_DRAW(must draw):
+        player: pure random
+        dealer: hit 22
+
+    3. SAME_VALUE_DRAW(must draw):
+        player: 17-21 without split/double
+        dealer: hands = 17-21 which same as player if player >= 17
+
+    4. BASIC:
+        player: random deal card without double/split/bj
+        dealer: random
+    
+    5. BJ(must win/draw):
+        player: hit bj
+        dealer: random
+
+    6. FREE_DOUBLE:
+        player: get hard 9-11
+        dealer: win/lose depends on winnablePot
+
+    7. FREE_2/3/4_SPLIT_NO_DOUBLE:
+        player: get AA-KK, be careful not to split too much and no double 9-11
+        dealer: win/lose depends on winnablePot
+
+    8. FREE_2/3/4_SPLIT_1/2/3/4_DOUBLE:
+        player: only get 22-99 for split
+        dealer: win/lose depends on winnablePot
+    
+    Only for split play:
+        if winPercentage to get win/draw or lose:
+            if maxWinnable > return and win:
+                maxWinnable - return
+        
+
+
+5. while still have alive hand
+    if it is first 2 cards or user selects hit
+        draw a card and add to the earliest alive hand(to handle split case)
+
+        * noOfMinWin = blackjack is counted must winnable
+        if noOfMinWin > noOfMaxWin:
+            put back card, shuffle, and draw again until noOfMinWin <= noOfMaxWin
+
+6. Random draw one card for dealer, unless hero is blackjack: make dealer get one BJ card
+
+7. Repeat 4-5 if user select to hit
+
+8. If hero is blackjack and draw with same hand, deal dealer with blackjack
+    If hero = win, dealer random draw a hand which make hero win at most noOfMaxWin
+    If hero = lose, dealer random draw a hand which make hero all lost
+    If hero = draw with same hands, dealer draw a hand which is same as client's largest hand(if there is split)
+    If hero = draw with 22, dealer just randomly hit 22
+
+2b it is not first 5 bet
