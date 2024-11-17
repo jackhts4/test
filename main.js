@@ -1,25 +1,33 @@
 const fs = require('fs');
-const readline = require('readline-sync');
+// const readline = require('readline-sync');
+
+const readline = () => {
+    return ""
+}
 
 const VALUES = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
-const OPTIONS = [
-    { name: 'BASIC', probability: 50.11, multiplier: 1 },
-    { name: 'BJ', probability: 6.83, multiplier: 1.5 },
-    { name: 'FREE_DOUBLE', probability: 18.45, multiplier: 2 },
-    { name: 'FREE_2_SPLIT', probability: 12.31, multiplier: 2 },
-    { name: 'FREE_3_SPLIT', probability: 8.2, multiplier: 3 },
-    { name: 'FREE_4_SPLIT', probability: 4.1, multiplier: 4 },
+const BET_PATHS = [
+    { name: 'LOSE', probability: 17, multiplier: 0 },
+    { name: '22_DRAW', probability: 3, multiplier: 1 },
+    { name: 'SAME_VALUE_DRAW', probability: 5, multiplier: 1 },
+    { name: 'BASIC', probability: 25.11, multiplier: 2 },
+    { name: 'BJ', probability: 6.83, multiplier: 2.5 },
+    { name: 'FREE_DOUBLE', probability: 18.45, multiplier: 3 },
+    { name: 'FREE_2_SPLIT', probability: 7.35, multiplier: 3 },
+    { name: 'FREE_2_SPLIT_1_DOUBLE', probability: 4.54, multiplier: 4 },
+    { name: 'FREE_2_SPLIT_2_DOUBLE', probability: 0.42, multiplier: 5 },
+    { name: 'FREE_3_SPLIT', probability: 2.77, multiplier: 4 },
+    { name: 'FREE_3_SPLIT_1_DOUBLE', probability: 4.54, multiplier: 5 },
+    { name: 'FREE_3_SPLIT_2_DOUBLE', probability: 0.84, multiplier: 6 },
+    { name: 'FREE_3_SPLIT_3_DOUBLE', probability: 0.05, multiplier: 7 },
+    { name: 'FREE_4_SPLIT', probability: 0.12, multiplier: 5 },
+    { name: 'FREE_4_SPLIT_1_DOUBLE', probability: 3.03, multiplier: 6 },
+    { name: 'FREE_4_SPLIT_2_DOUBLE', probability: 0.84, multiplier: 7 },
+    { name: 'FREE_4_SPLIT_3_DOUBLE', probability: 0.1, multiplier: 8 },
+    { name: 'FREE_4_SPLIT_4_DOUBLE', probability: 0.01, multiplier: 9 },
 ];
-const FIRST_BET_LOST_OPTIONS = [
-    {name: "LOST", probability: 85},
-    {name: "SAME_VALUE_DRAW", probability: 10},
-    {name: "22_DRAW", probability: 5}
-]
-const FIRST_BET_WIN_OPTIONS = [
-    {name: "WIN", probability: 85},
-    {name: "SAME_VALUE_DRAW", probability: 10},
-    {name: "22_DRAW", probability: 5}
-]
+const REDRAW_PATHS = ["22_DRAW", "SAME_VALUE_DRAW", "BJ"]
+
 // Function to create a shoe with 4 decks (4 * 52 cards)
 function createShoe() {
     let shoe = [];
@@ -27,8 +35,6 @@ function createShoe() {
         for (let value of VALUES) {
             for (let j = 0; j < 4; j++) { // Each value has 4 cards per deck
                 shoe.push(value);
-       
-       
             }
         }
     }
@@ -44,6 +50,16 @@ function shuffleShoe(shoe) {
     return shoe;
 }
 
+// Deal card
+function dealCard(shoe) {
+    return shoe.pop();
+}
+
+function addCard(shoe, card) {
+    shoe.push(card)
+    shuffleShoe(shoe)
+}
+
 // Function to get card value
 function getCardValue(card) {
     if (['J', 'Q', 'K'].includes(card)) return 10;
@@ -51,6 +67,26 @@ function getCardValue(card) {
     return parseInt(card);
 }
 
+function isBJ(hand) {
+    if (calculateHandValue(hand) == 21) {
+        return true
+    }
+    return false
+}
+
+function isDouble(hand) {
+    if ([9, 10, 11].includes(calculateHandValue(hand))) {
+        return true
+    }
+    return false
+}
+
+function isSplit(hand) {
+    if (hand[0] == hand[1]) {
+        return true
+    }
+    return false
+}
 // Function to calculate hand value
 function calculateHandValue(hand) {
     let value = hand.reduce((acc, card) => acc + getCardValue(card), 0);
@@ -60,11 +96,6 @@ function calculateHandValue(hand) {
         aces--;
     }
     return value;
-}
-
-// Deal card
-function dealCard(shoe) {
-    return shoe.pop();
 }
 
 // Function to print hand
@@ -110,7 +141,8 @@ function playerTurn(hands, index, shoe) {
     if (canFreeDouble(hands[index]["cards"])) options.push('Free Double');
     if (hands.length < 4 && canFreeSplit(hands[index]["cards"])) options.push('Free Split');
 
-    const choice = readline.keyInSelect(options, 'Choose an option: ');
+    // const choice = readline.keyInSelect(options, 'Choose an option: ');
+    const choice = "Hit"
 
     if (options[choice] === 'Hit') {
         hands[index]["cards"].push(dealCard(shoe));
@@ -162,6 +194,11 @@ function getHandResult(playerHand, dealerHand) {
     }
 }
 
+function getRandomInt(min, max) {
+    const randomInt = Math.floor(Math.random() * (max - min + 1)) + min
+    return randomInt
+}
+
 // Function to load player data from JSON file
 function loadPlayers() {
     if (fs.existsSync('players.json')) {
@@ -179,7 +216,74 @@ function savePlayer(player) {
     fs.writeFileSync('players.json', JSON.stringify(players, null, 2));
 }
 
-// Function to load hand history from JSON file
+// Function to get or create player
+function getPlayer(playerId) {
+    let players = loadPlayers();
+    // const playerId = readline.question('Enter your player ID: ');
+    if (!players[playerId]) {
+        console.log('New player detected, creating profile...');
+        const newPlayer = { "id": playerId, "amount": 1000, "hands": 0 }
+        savePlayer(newPlayer);
+        return newPlayer
+    } else {
+        console.log(`Welcome back, Player ${playerId}! Your current amount is: ${players[playerId].amount}`);
+    }
+    return players[playerId];
+}
+
+function loadSharePot() {
+    if (fs.existsSync('share_pot.json')) {
+        const data = fs.readFileSync('share_pot.json');
+        return (JSON.parse(data))["value"];
+    } else {
+        saveSharePot({ "value": 0 })
+        return 0;
+    }
+}
+
+function saveSharePot(pot) {
+    fs.writeFileSync('share_pot.json', JSON.stringify(pot, null, 2));
+}
+
+function addToSharePot(amountToAdd) {
+    let sharePot = loadSharePot()
+    let newSharePot = { value: sharePot + amountToAdd }
+    saveSharePot(newSharePot)
+}
+
+function loadPlayerPot() {
+    if (fs.existsSync('player_pot.json')) {
+        const data = fs.readFileSync('player_pot.json');
+        return (JSON.parse(data));
+    } else {
+        return {};
+    }
+}
+
+function getPlayerPot(playerId) {
+    let playerPot = loadPlayerPot();
+    if (!playerPot[playerId]) {
+        console.log('Create new player pool for playerId:', playerId);
+        const newPlayerPot = { "value": 0 }
+        savePlayerPot(playerId, newPlayerPot);
+        return 0
+    } else {
+        return playerPot[playerId]["value"];
+    }
+}
+
+function savePlayerPot(playerId, newPlayerPot) {
+    let playerPot = loadPlayerPot();
+    playerPot[playerId] = newPlayerPot;
+    fs.writeFileSync('player_pot.json', JSON.stringify(playerPot, null, 2));
+}
+
+function addToPlayerPot(playerId, amountToAdd) {
+    let playerPot = getPlayerPot(playerId)
+    let newPlayerPot = { value: playerPot + amountToAdd }
+    savePlayerPot(playerId, newPlayerPot)
+}
+
 function loadHandHistory() {
     if (fs.existsSync('hand_history.json')) {
         const data = fs.readFileSync('hand_history.json');
@@ -189,105 +293,197 @@ function loadHandHistory() {
     }
 }
 
-// Function to save hand history to JSON file
-function savePlatformPot(pot) {
-    fs.writeFileSync('platform_pot.json', JSON.stringify(pot, null, 2));
-}
-
-// Function to load hand history from JSON file
-function getPlatformPot() {
-    if (fs.existsSync('platform_pot.json')) {
-        const data = fs.readFileSync('platform_pot.json');
-        return (JSON.parse(data))["value"];
-    } else {
-        savePlatformPot({ "value": 0 })
-        return 0;
-    }
-}
-
-// Function to save hand history to JSON file
 function saveHandHistory(history) {
     fs.writeFileSync('hand_history.json', JSON.stringify(history, null, 2));
 }
 
-// Function to get or create player
-function getPlayer() {
-    let players = loadPlayers();
-    // const playerId = readline.question('Enter your player ID: ');
-    const playerId = 100
-    if (!players[playerId]) {
-        console.log('New player detected, creating profile...');
-        const player = { "id": playerId, "amount": 1000 }
-        savePlayer(player);
+function getFirstBetPath() {
+    const rand = Math.random() * 100; // Random number between 0 and 100
+    let cumulativeProbability = 0;
+    for (let betPath of BET_PATHS) {
+        cumulativeProbability += betPath.probability;
+        if (rand < cumulativeProbability) {
+            return [betPath.name, betPath.multiplier];
+        }
+    }
+}
+
+
+function handleFirstBetFunds(playerId, betSize) {
+    addToPlayerPot(playerId, betSize * 0.4)
+    addToSharePot(betSize * 0.58)
+}
+
+
+function dealPlayerLose(shoe, hand, dealerValue) {
+    if (hand.length == 0) {
+        hand.push(dealCard(shoe))
+    } else if (hand.length == 1) {
+        const tempHand = JSON.parse(JSON.stringify(hand))
+        let newCard = dealCard(shoe)
+        tempHand.push(newCard)
+        while (isBJ(tempHand) || isDouble(tempHand) || isSplit(tempHand) || (calculateHandValue(tempHand) >= dealerValue && calculateHandValue(tempHand) <= 21)) {
+            addCard(shoe, tempHand.pop())
+            newCard = dealCard(shoe)
+            tempHand.push(newCard)
+        }
+        hand.push(newCard)
     } else {
-        console.log(`Welcome back, Player ${playerId}! Your current amount is: ${players[playerId].amount}`);
-    }
-    return players[playerId];
-}
-
-// Function to check if player has bet before
-function isFirstBet(playerId) {
-    let history = loadHandHistory();
-    return !history.some(record => record.user_id === playerId);
-}
-
-function getFirstBetOptions() {
-    const rand = Math.random() * 100; // Random number between 0 and 100
-    let cumulativeProbability = 0;
-
-    for (let option of OPTIONS) {
-        cumulativeProbability += option.probability;
-        if (rand < cumulativeProbability) {
-            return [option.name, option.multiplier];
+        const tempHand = JSON.parse(JSON.stringify(hand))
+        let newCard = dealCard(shoe)
+        tempHand.push(newCard)
+        while (calculateHandValue(tempHand) >= dealerValue && calculateHandValue(tempHand) <= 21) {
+            addCard(shoe, tempHand.pop())
+            newCard = dealCard(shoe)
+            tempHand.push(newCard)
         }
+        hand.push(newCard)
     }
-    // Fallback in case of rounding errors
-    return ["BASIC", 1];
 }
 
-function getRandomFirstBetLostOptions() {
-    const rand = Math.random() * 100; // Random number between 0 and 100
-    let cumulativeProbability = 0;
+function dealPlayerRandom(shoe, hand) {
+    hand.push(dealCard(shoe))
+}
 
-    for (let option of FIRST_BET_LOST_OPTIONS) {
-        cumulativeProbability += option.probability;
-        if (rand < cumulativeProbability) {
-            return option.name
+function dealPlayerSameValueDraw(shoe, hand, dealerValue) {
+    if (hand.length == 0) {
+        hand.push(dealCard(shoe))
+    } else if (hand.length == 1) {
+        const tempHand = JSON.parse(JSON.stringify(hand))
+        let newCard = dealCard(shoe)
+        tempHand.push(newCard)
+        while (isBJ(tempHand) || isDouble(tempHand) || isSplit(tempHand) || calculateHandValue(tempHand) > dealerValue) {
+            addCard(shoe, tempHand.pop())
+            newCard = dealCard(shoe)
+            tempHand.push(newCard)
         }
-    }
-    // Fallback in case of rounding errors
-    return FIRST_BET_LOST_OPTIONS[0].probability;
-}
-
-function getRandomFirstBetWinOptions() {
-    const rand = Math.random() * 100; // Random number between 0 and 100
-    let cumulativeProbability = 0;
-
-    for (let option of FIRST_BET_WIN_OPTIONS) {
-        cumulativeProbability += option.probability;
-        if (rand < cumulativeProbability) {
-            return option.name
+        hand.push(newCard)
+    } else if (calculateHandValue(hand) < dealerValue) {
+        const tempHand = JSON.parse(JSON.stringify(hand))
+        let newCard = dealCard(shoe)
+        tempHand.push(newCard)
+        while (calculateHandValue(tempHand) > dealerValue) {
+            addCard(shoe, tempHand.pop())
+            newCard = dealCard(shoe)
+            tempHand.push(newCard)
         }
+        hand.push(newCard)
+    } else if (calculateHandValue(hand) == dealerValue) { // burst it
+        const tempHand = JSON.parse(JSON.stringify(hand))
+        let newCard = dealCard(shoe)
+        tempHand.push(newCard)
+        while (calculateHandValue(tempHand) <= 21) {
+            addCard(shoe, tempHand.pop())
+            newCard = dealCard(shoe)
+            tempHand.push(newCard)
+        }
+        hand.push(newCard)
     }
-    // Fallback in case of rounding errors
-    return FIRST_BET_WIN_OPTIONS[0].probability;
 }
 
-function getPlayerInitCards(gamePath, gameResult){
-    if (gamePath == "BASIC"){
+function dealPlayerBasic(shoe, hand) {
+    if (hand.length == 0) {
+        hand.push(dealCard(shoe))
+    } else if (hand.length == 1) {
+        const tempHand = JSON.parse(JSON.stringify(hand))
+        let newCard = dealCard(shoe)
+        tempHand.push(newCard)
+        while (isBJ(tempHand) || isDouble(tempHand) || isSplit(tempHand)) {
+            addCard(shoe, tempHand.pop())
+            newCard = dealCard(shoe)
+            tempHand.push(newCard)
+        }
+        hand.push(newCard)
+    } else {
+        hand.push(dealCard(shoe))
+    }
+}
 
-    } else if(gamePath == "BASIC"){
+function dealPlayerBJ(shoe, hand) {
+    if (hand.length == 0) {
+        let newCard = dealCard(shoe)
+        while (!["10", "J", "Q", "K", "A"].includes(newCard)) {
+            addCard(shoe, newCard)
+            newCard = dealCard(shoe)
+        }
+        hand.push(newCard)
+    } else {
+        const holdCard = hand[0]
+        let newCard = dealCard(shoe)
+        const cardsPool = holdCard == "A" ? ["10", "J", "Q", "K"] : ["A"]
+        while (!cardsPool.includes(newCard)) {
+            addCard(shoe, newCard)
+            newCard = dealCard(shoe)
+        }
+        hand.push(newCard)
+    }
+}
 
-    } 
+// double should not contain soft
+function dealPlayerDouble(shoe, hand) {
+    if (hand.length == 0) {
+        const tempHand = JSON.parse(JSON.stringify(hand))
+        let newCard = dealCard(shoe)
+        // loop until new card not A
+        while (newCard == "A") {
+            addCard(shoe, tempHand.pop())
+            newCard = dealCard(shoe)
+            tempHand.push(newCard)
+        }
+        hand.push(newCard)
 
+    } else if (hand.length == 1) {
+        const tempHand = JSON.parse(JSON.stringify(hand))
+        let newCard = dealCard(shoe)
+        tempHand.push(newCard)
+        // loop until new card not A and total value is not 9, 10, 11
+        while (newCard == "A" || ![9, 10, 11].includes(calculateHandValue(tempHand))) {
+            addCard(shoe, tempHand.pop())
+            newCard = dealCard(shoe)
+            tempHand.push(newCard)
+        }
+        hand.push(newCard)
+    } else {
+        hand.push(dealCard(shoe))
+    }
+}
+
+function dealPlayerSplitDouble(shoe, playerHands, maxSplit, maxDouble) {
+    const cardsPool = maxDouble == 0 ? ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'] : ['2', '3', '4', '5', '6', '7', '8', '9']
     
-    if (gameResult == "LOST"){
+    let currentHandIndex = getCurrentAliveHandIndex(playerHands);
+    const hand = playerHands[currentHandIndex]["cards"]
 
-    }else if(gameResult == "SAME_VALUE_DRAW"){
+    if (hand.length == 0) {
+        let newCard = dealCard(shoe)
+        while (!cardsPool.includes(newCard)) {
+            addCard(shoe, newCard)
+            newCard = dealCard(shoe)
+        }
+        hand.push(newCard)
 
-    }else if(gameResult == "22_DRAW"){
+    }else if(hand.length == 1){
+        if(playerHands.length < maxSplit){
+            
+        }
+    }else{
 
-    }else if(gameResult == "WIN"){
+    }
+}
+
+function getPlayerInitCards(gamePath, gameResult, shoe) {
+
+    // 3-17 and cannot double
+    if (gameResult == "LOST") {
+
+        // 2-20 
+    } else if (gameResult == "SAME_VALUE_DRAW") {
+
+        // 2-21
+    } else if (gameResult == "22_DRAW") {
+
+        // 2-21
+    } else if (gameResult == "WIN") {
 
     }
 }
@@ -316,44 +512,89 @@ function getBetAmount(player, isFirstBet) {
 function playBlackjack() {
     let player = getPlayer();
     let shoe = shuffleShoe(createShoe());
+    let playerHands = []
 
     // Check if player is making their first bet
-    const firstBet = isFirstBet(player.id);
+    const firstFiveBets = player.hands > 5 ? false : true
     // Get bet amount from player
     // const betAmount = getBetAmount(player, firstBet);
-    const betAmount = 500
-    console.log(`You have placed a bet of ${betAmount}.`);
+    const betSize = 500
+    console.log(`You have placed a bet of ${betSize}.`);
 
-    if (firstBet) {
-        console.log("Is first bet")
-        const [gamePath, selectedMultiplier] = getFirstBetOptions() // path = double/free 2 split/free 3 split, etc...
-        const adjustedBetSize = betAmount * selectedMultiplier
-        const platformPot = getPlatformPot()
-        const winnablePot = 0.2 * platformPot - 0.02 * betAmount // 20% of the pot - 2% betsize(fee)
-        let gameResult // win/lost/draw
-        // 85% lose, 15% draw (10% same point as user, 5% dealer 22)
-        console.log("Adjusted Bet Size:", adjustedBetSize)
-        console.log("Platform Pot:", platformPot)
-        console.log("20% Winnable Pot:", winnablePot)
-        if(adjustedBetSize > winnablePot){
-            gameResult = getRandomFirstBetLostOptions()
-        }else{
-            gameResult = getRandomFirstBetWinOptions()
+    if (firstFiveBets) {
+        console.log("Is firstFiveBets")
+        handleFirstBetFunds(player.id, betSize)
+        let sharePot = loadSharePot()
+
+        let requireRedraw = true
+        let gamePath // to decide starting hand 
+        let selectedMultiplier
+        let adjustedBetSize // betSize * selectedMutliplier
+        let winnablePot // 20% of platformPot 
+
+        while (requireRedraw) {
+            [gamePath, selectedMultiplier] = getFirstBetPath()
+            adjustedBetSize = betSize * selectedMultiplier
+            winnablePot = 0.2 * sharePot
+            // if not( larger than 20% pot + redraw option)
+            if (!(adjustedBetSize > winnablePot && REDRAW_PATHS.includes(gamePath))) {
+                requireRedraw = false
+            }
         }
 
-        console.log("Game Path:", gamePath)
-        console.log("Game Result:", gameResult)
+        gamePath = "LOSE"
+
+        let dealerValue
+        let canWin = false
+        let canLose = false
+        let canDraw = false
+        let canDouble = false
+        let canSplit = false
+        let canBJ = false
+
+        if (gamePath == "LOSE") {
+            dealerValue = getRandomInt(17, 21)
+            canLose = true
+        } else if (gamePath == "22_DRAW") {
+            dealerValue = 22
+        } else if (gamePath == "SAME_VALUE_DRAW") {
+            dealerValue = getRandomInt(17, 21)
+        } else if (gamePath == "BASIC") {
+            dealerValue = "RANDOM"
+        } else if (gamePath == "BJ") {
+            dealerValue = "RANDOM"
+        } else if (gamePath == "FREE_DOUBLE") {
+            dealerValue = "RANDOM"
+        } else if (gamePath == "FREE_2_SPLIT") {
+
+        }
+
+        let playerHand = []
+        dealerValue = 17
+        for (let i = 0; i < 8; i++) {
+            dealPlayerDouble(shoe, playerHand)
+        }
+        // dealPlayerCard(shoe, playerHand, dealerValue, canWin, canLose, canDraw, canDouble, canSplit, canBJ)
+        console.log(playerHand)
+        return
+
+
+
+
+        // console.log("Game Path:", gamePath)
+        // console.log("Game Result:", gameResult)
+
+        // playerHands = [{
+        //     "live": true,
+        //     "cards": getPlayerInitCards(gamePath, gameResult, shoe)
+        // }];
+
+        // let dealerHand = [dealCard(shoe), dealCard(shoe)];
     } else {
-        console.log("Not first bet")
+        console.log("Not firstFiveBets")
     }
 
-    // Initial hands
-    let playerHands = [{
-        "live": true,
-        "cards": getPlayerInitCards(gamePath, gameResult)
-    }];
 
-    let dealerHand = [dealCard(shoe), dealCard(shoe)];
     return
     printDealerHands(dealerHand);
     // Play each hand, considering splits
@@ -404,5 +645,4 @@ function playBlackjack() {
 }
 
 // Start the game
-console.log('Welcome to Free Bet Blackjack!');
 playBlackjack();
