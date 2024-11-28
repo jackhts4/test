@@ -1,9 +1,5 @@
 const fs = require('fs');
-// const readline = require('readline-sync');
-
-const readline = () => {
-    return ""
-}
+const readline = require('readline-sync');
 
 const VALUES = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
 const BET_PATHS = [
@@ -109,7 +105,7 @@ function printDealerHands(hand) {
 function printPlayerHands(playerHands) {
     for (let i = 0; i < playerHands.length; i++) {
         const handDescription = playerHands[i]["cards"].map(card => `${card}`).join(', ');
-        console.log(`Player Hand ${i + 1} - ${playerHands[i]["live"] ? "Alive" : "Dead"} - ${handDescription}`);
+        console.log(`Player Hand ${i + 1} - ${playerHands[i]["live"] ? "Alive" : "End action"} - ${handDescription}`);
     }
 }
 
@@ -128,7 +124,10 @@ function getCurrentAliveHandIndex(playerHands) {
 
 // Free Bet Blackjack rules: Allows free doubles and free splits on certain hands
 function canFreeDouble(hand) {
-    return calculateHandValue(hand) >= 9 && calculateHandValue(hand) <= 11;
+    if (hand.length >= 2) {
+        return calculateHandValue(hand.slice(0, 2)) >= 9 && calculateHandValue(hand.slice(0, 2)) <= 11;
+    }
+    return false
 }
 
 function canFreeSplit(hand) {
@@ -141,15 +140,17 @@ function playerTurn(hands, index, shoe) {
     if (canFreeDouble(hands[index]["cards"])) options.push('Free Double');
     if (hands.length < 4 && canFreeSplit(hands[index]["cards"])) options.push('Free Split');
 
-    // const choice = readline.keyInSelect(options, 'Choose an option: ');
-    const choice = "Hit"
+    const choice = readline.keyInSelect(options, 'Choose an option: ');
+    // const choice = 0
 
     if (options[choice] === 'Hit') {
-        hands[index]["cards"].push(dealCard(shoe));
+        // hands[index]["cards"].push(dealCard(shoe));
+        dealPlayerSplitDouble(shoe, hands, 2, 2)
     } else if (options[choice] === 'Stand') {
         hands[index]["live"] = false;
     } else if (options[choice] === 'Free Double') {
-        hands[index]["cards"].push(dealCard(shoe));
+        // hands[index]["cards"].push(dealCard(shoe));
+        dealPlayerSplitDouble(shoe, hands, 2, 2)
         hands[index]["live"] = false;
     } else if (options[choice] === 'Free Split') {
         hands.push({
@@ -308,12 +309,23 @@ function getFirstBetPath() {
     }
 }
 
-
 function handleFirstBetFunds(playerId, betSize) {
     addToPlayerPot(playerId, betSize * 0.4)
     addToSharePot(betSize * 0.58)
 }
 
+function getDoubledHand(playerHands) {
+    let result = 0
+    for (let i = 0; i < playerHands.length; i++) {
+        if (playerHands[i]["cards"].length >= 2) {
+            let hand = playerHands[i]["cards"].slice(0, 2)
+            if (9 <= calculateHandValue(hand) && calculateHandValue(hand) <= 11) {
+                result++
+            }
+        }
+    }
+    return result
+}
 
 function dealPlayerLose(shoe, hand, dealerValue) {
     if (hand.length == 0) {
@@ -450,7 +462,6 @@ function dealPlayerDouble(shoe, hand) {
 
 function dealPlayerSplitDouble(shoe, playerHands, maxSplit, maxDouble) {
     const cardsPool = maxDouble == 0 ? ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'] : ['2', '3', '4', '5', '6', '7', '8', '9']
-    
     let currentHandIndex = getCurrentAliveHandIndex(playerHands);
     const hand = playerHands[currentHandIndex]["cards"]
 
@@ -461,13 +472,127 @@ function dealPlayerSplitDouble(shoe, playerHands, maxSplit, maxDouble) {
             newCard = dealCard(shoe)
         }
         hand.push(newCard)
+    } else if (hand.length == 1) {
+        if (playerHands.length < maxSplit) { // still can split
+            let prob
 
-    }else if(hand.length == 1){
-        if(playerHands.length < maxSplit){
-            
+            if (currentHandIndex == playerHands.length) { // must split as it is current last hand
+                prob = 1
+            } else if (currentHandIndex == 0) { // first hand must split
+                prob = 1
+            } else { // 50% to split
+                prob = 0.5
+            }
+
+            if (Math.random() <= prob) { // add split card
+                const splitCard = playerHands[0]["cards"][0]
+                let newCard = dealCard(shoe)
+                while (newCard != splitCard) {
+                    addCard(shoe, newCard)
+                    newCard = dealCard(shoe)
+                }
+                hand.push(newCard)
+            } else { // add non split card
+                let noOfDoubled = getDoubledHand(playerHands)
+                if (noOfDoubled < maxDouble) { // can double
+                    let availableDouble = maxDouble - noOfDoubled // number of doubled hands are required
+                    let doubleSlot = maxSplit - currentHandIndex // number of slot of hands that can split, place reminded in hands
+
+                    if (doubleSlot > availableDouble) {
+                        prob = 0.5
+                    } else {
+                        prob = 1
+                    }
+
+                    if (Math.random() <= prob) { // add double card
+                        const tempHand = JSON.parse(JSON.stringify(hand))
+                        let newCard = dealCard(shoe)
+                        tempHand.push(newCard)
+                        // loop until new card not A and total value is not 9, 10, 11
+                        while (newCard == "A" || ![9, 10, 11].includes(calculateHandValue(tempHand))) {
+                            addCard(shoe, tempHand.pop())
+                            newCard = dealCard(shoe)
+                            tempHand.push(newCard)
+                        }
+                        hand.push(newCard)
+                    } else { // deal any card without double, bj, split
+                        const tempHand = JSON.parse(JSON.stringify(hand))
+                        let newCard = dealCard(shoe)
+                        tempHand.push(newCard)
+                        while (isBJ(tempHand) || isDouble(tempHand) || isSplit(tempHand)) {
+                            addCard(shoe, tempHand.pop())
+                            newCard = dealCard(shoe)
+                            tempHand.push(newCard)
+                        }
+                        hand.push(newCard)
+                    }
+                } else { // deal any card without double, bj, split
+                    const tempHand = JSON.parse(JSON.stringify(hand))
+                    let newCard = dealCard(shoe)
+                    tempHand.push(newCard)
+                    while (isBJ(tempHand) || isDouble(tempHand) || isSplit(tempHand)) {
+                        addCard(shoe, tempHand.pop())
+                        newCard = dealCard(shoe)
+                        tempHand.push(newCard)
+                    }
+                    hand.push(newCard)
+                }
+            }
+        } else { // add non split card
+            let noOfDoubled = getDoubledHand(playerHands)
+            if (noOfDoubled < maxDouble) { // can double
+                let availableDouble = maxDouble - noOfDoubled // number of doubled hands are required
+                let doubleSlot = maxSplit - currentHandIndex // number of slot of hands that can split, place reminded in hands
+
+                if (doubleSlot > availableDouble) {
+                    prob = 0.5
+                } else {
+                    prob = 1
+                }
+
+                if (Math.random() <= prob) { // add double card
+                    const tempHand = JSON.parse(JSON.stringify(hand))
+                    let newCard = dealCard(shoe)
+                    tempHand.push(newCard)
+                    // loop until new card not A and total value is not 9, 10, 11
+                    while (newCard == "A" || ![9, 10, 11].includes(calculateHandValue(tempHand))) {
+                        addCard(shoe, tempHand.pop())
+                        newCard = dealCard(shoe)
+                        tempHand.push(newCard)
+                    }
+                    hand.push(newCard)
+                } else { // deal any card without double, bj, split
+                    const tempHand = JSON.parse(JSON.stringify(hand))
+                    let newCard = dealCard(shoe)
+                    tempHand.push(newCard)
+                    while (isBJ(tempHand) || isDouble(tempHand) || isSplit(tempHand)) {
+                        addCard(shoe, tempHand.pop())
+                        newCard = dealCard(shoe)
+                        tempHand.push(newCard)
+                    }
+                    hand.push(newCard)
+                }
+            } else { // deal any card without double, bj, split
+                const tempHand = JSON.parse(JSON.stringify(hand))
+                let newCard = dealCard(shoe)
+                tempHand.push(newCard)
+                while (isBJ(tempHand) || isDouble(tempHand) || isSplit(tempHand)) {
+                    addCard(shoe, tempHand.pop())
+                    newCard = dealCard(shoe)
+                    tempHand.push(newCard)
+                }
+                hand.push(newCard)
+            }
+
         }
-    }else{
-
+    } else {
+        const splitCard = playerHands[0]["cards"][0]
+        let newCard = dealCard(shoe)
+        while (newCard == splitCard) {
+            addCard(shoe, newCard)
+            newCard = dealCard(shoe)
+        }
+        hand.push(newCard)
     }
 }
 
@@ -566,34 +691,28 @@ function playBlackjack() {
         } else if (gamePath == "FREE_DOUBLE") {
             dealerValue = "RANDOM"
         } else if (gamePath == "FREE_2_SPLIT") {
-
+            dealerValue = "RANDOM"
         }
 
-        let playerHand = []
+        playerHands = [{
+            "live": true,
+            "cards": ["7"]
+        }];
+        // dealPlayerSplitDouble(shoe, playerHands, 2, 2)
         dealerValue = 17
-        for (let i = 0; i < 8; i++) {
-            dealPlayerDouble(shoe, playerHand)
+
+        while (isPlayerLive(playerHands)) {
+            printPlayerHands(playerHands);
+            let currentHandIndex = getCurrentAliveHandIndex(playerHands);
+            console.log(`\nPlaying hand ${currentHandIndex + 1}:`);
+            playerTurn(playerHands, currentHandIndex, shoe);
         }
-        // dealPlayerCard(shoe, playerHand, dealerValue, canWin, canLose, canDraw, canDouble, canSplit, canBJ)
-        console.log(playerHand)
+        console.log("End of player turn");
         return
 
-
-
-
-        // console.log("Game Path:", gamePath)
-        // console.log("Game Result:", gameResult)
-
-        // playerHands = [{
-        //     "live": true,
-        //     "cards": getPlayerInitCards(gamePath, gameResult, shoe)
-        // }];
-
-        // let dealerHand = [dealCard(shoe), dealCard(shoe)];
     } else {
         console.log("Not firstFiveBets")
     }
-
 
     return
     printDealerHands(dealerHand);
