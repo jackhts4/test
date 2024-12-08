@@ -1,6 +1,15 @@
 const fs = require('fs');
 const readline = require('readline-sync');
 
+
+const DEBUG = true
+const DEBUG_PLAYER_ID = 100
+const DEBUG_BETSIZE = 500
+const DEBUG_GAME_PATH = "FREE_DOUBLE"
+const DEBUG_DEALER_VALUE = 18
+const DEBUG_PLAYER_WIN = true
+const DEBUG_NO_OF_WIN_BETS = 2 // if win all split4 double4 = 8, win all split4 double3 = 7
+
 const VALUES = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
 const BET_PATHS = [
     { name: 'LOSE', probability: 17, multiplier: 0 },
@@ -94,6 +103,30 @@ function calculateHandValue(hand) {
     return value;
 }
 
+function getCurrentWinBets(hands, dealerValue) {
+    let result = 0
+    for (let i = 0; i < hands.length; i++) {
+        const status = hands[i]["status"]
+        const hand = hands[i]["cards"]
+        if (status == "ALIVE") {
+            if (calculateHandValue(hand) >= dealerValue) {
+                result = result + 1
+            }
+        } else if (status == "STAND") {
+            if (calculateHandValue(hand) >= dealerValue) {
+                result = result + 1
+            }
+        } else if (status == "DOUBLE") {
+            if (calculateHandValue(hand) >= dealerValue) {
+                result = result + 2
+            }
+        } else if (status == "BURST") {
+
+        }
+    }
+    return result
+}
+
 // Function to print hand
 function printDealerHands(hand) {
     const handDescription = hand.map(card => `${card}`).join(', ');
@@ -105,7 +138,8 @@ function printDealerHands(hand) {
 function printPlayerHands(playerHands) {
     for (let i = 0; i < playerHands.length; i++) {
         const handDescription = playerHands[i]["cards"].map(card => `${card}`).join(', ');
-        console.log(`Player Hand ${i + 1} - ${playerHands[i]["live"] ? "Alive" : "End action"} - ${handDescription}`);
+        const handValue = calculateHandValue(playerHands[i]["cards"])
+        console.log(`Player Hand ${i + 1} - ${playerHands[i]["live"] ? "Alive" : "End action"} - ${handDescription} (${handValue})`);
     }
 }
 
@@ -135,43 +169,91 @@ function canFreeSplit(hand) {
 }
 
 // Function to handle player actions (Hit, Stand, Free Double, Free Split)
-function playerTurn(hands, index, shoe) {
+function playerTurn(hands, index, shoe, gamePath, dealerValue, noOfWinBets) {
     const options = ['Hit', 'Stand'];
-    if (canFreeDouble(hands[index]["cards"])) options.push('Free Double');
-    if (hands.length < 4 && canFreeSplit(hands[index]["cards"])) options.push('Free Split');
+    if (canFreeDouble(hands[index]["cards"])) {
+        options.push('Free Double');
+    }
+    if (hands.length < 4 && canFreeSplit(hands[index]["cards"])) {
+        options.push('Free Split');
+    }
 
     const choice = readline.keyInSelect(options, 'Choose an option: ');
     // const choice = 0
+    const currentWinBets = getCurrentWinBets(hands, dealerValue)
+    console.log("currentWinBets:", currentWinBets)
 
     if (options[choice] === 'Hit') {
-        // hands[index]["cards"].push(dealCard(shoe));
-        dealPlayerSplitDouble(shoe, hands, 2, 2)
+        handlePlayerHit(hands, index, shoe, gamePath, dealerValue, noOfWinBets, currentWinBets)
     } else if (options[choice] === 'Stand') {
         hands[index]["live"] = false;
+        hands[index]["status"] = "STAND";
     } else if (options[choice] === 'Free Double') {
-        // hands[index]["cards"].push(dealCard(shoe));
-        dealPlayerSplitDouble(shoe, hands, 2, 2)
+        handlePlayerHit(hands, index, shoe, gamePath, dealerValue, noOfWinBets, currentWinBets)
         hands[index]["live"] = false;
+        hands[index]["status"] = "DOUBLE";
     } else if (options[choice] === 'Free Split') {
         hands.push({
             "live": true,
-            "cards": [hands[index]["cards"].pop()]
+            "cards": [hands[index]["cards"].pop()],
+            "status": "ALIVE"
         });
     }
 
     if (calculateHandValue(hands[index]["cards"]) > 21) {
         hands[index]["live"] = false;
-        return 'Bust';
+        hands[index]["status"] = "BURST";
+    }
+}
+
+function handlePlayerHit(hands, index, shoe, gamePath, dealerValue, noOfWinBets, currentWinBets) {
+    const hand = hands[index]["cards"]
+    if (gamePath == "LOSE") {
+        dealPlayerLose(shoe, hand, dealerValue)
+    } else if (gamePath == "22_DRAW") {
+        dealPlayerRandom(shoe, hand)
+    } else if (gamePath == "SAME_VALUE_DRAW") {
+        dealPlayerSameValueDraw(shoe, hand, dealerValue)
+    } else if (gamePath == "BASIC") {
+        let playerWin = false
+        if(noOfWinBets > currentWinBets){
+            playerWin = true
+        }
+        dealPlayerBasic(shoe, hand, dealerValue, playerWin)
+    } else if (gamePath == "BJ") {
+        dealPlayerBJ(shoe, hand)
+    } else if (gamePath == "FREE_DOUBLE") {
+        dealPlayerDouble(shoe, hand)
+    } else {
+        pathArr = gamePath.split("_")
+        pathArrLen = pathArr.length
+        if (pathArrLen == 3) {
+            const maxSplit = pathArr[1]
+            const maxDouble = 0
+            dealPlayerSplitDouble(shoe, hands, maxSplit, maxDouble)
+        } else if (pathArrLen == 5) {
+            const maxSplit = pathArr[1]
+            const maxDouble = pathArr[3]
+            dealPlayerSplitDouble(shoe, hands, maxSplit, maxDouble)
+        } else {
+            console.log("unhandled case, bug")
+            console.log("gamePath", gamePath)
+        }
     }
 }
 
 // Function to handle dealer's turn
-function dealerTurn(hand, shoe) {
+function dealerTurn(hand, shoe, gamePath, dealerValue) {
+
     while (calculateHandValue(hand) < 17) {
-        hand.push(dealCard(shoe));
+        if (dealerValue == "BURST") {
+            dealDealerBurst(shoe, hand)
+        } else {
+            dealDealerExactValue(shoe, hand, dealerValue)
+        }
     }
     printDealerHands(hand);
-    return calculateHandValue(hand) > 21 ? 'DealerBust' : 'Stand';
+    // return calculateHandValue(hand) > 21 ? 'DealerBust' : 'Stand';
 }
 
 // Function to compare player and dealer hands
@@ -200,6 +282,10 @@ function getRandomInt(min, max) {
     return randomInt
 }
 
+function getRandomFromArr(arr) {
+    return arr[Math.floor(Math.random() * arr.length)];
+}
+
 // Function to load player data from JSON file
 function loadPlayers() {
     if (fs.existsSync('players.json')) {
@@ -222,12 +308,12 @@ function getPlayer(playerId) {
     let players = loadPlayers();
     // const playerId = readline.question('Enter your player ID: ');
     if (!players[playerId]) {
-        console.log('New player detected, creating profile...');
+        console.log('New player detected, creating profile. \n');
         const newPlayer = { "id": playerId, "amount": 1000, "hands": 0 }
         savePlayer(newPlayer);
         return newPlayer
     } else {
-        console.log(`Welcome back, Player ${playerId}! Your current amount is: ${players[playerId].amount}`);
+        console.log(`Welcome back, Player ${playerId}! Your current amount is: ${players[playerId].amount} \n`);
     }
     return players[playerId];
 }
@@ -353,8 +439,30 @@ function dealPlayerLose(shoe, hand, dealerValue) {
     }
 }
 
-function dealPlayerRandom(shoe, hand) {
-    hand.push(dealCard(shoe))
+function dealPlayerRandom(shoe, hand, playerWin) {
+    if (hand.length == 0) {
+        hand.push(dealCard(shoe))
+    } else if (hand.length == 1) {
+        const tempHand = JSON.parse(JSON.stringify(hand))
+        let newCard = dealCard(shoe)
+        tempHand.push(newCard)
+        while (isBJ(tempHand) || isDouble(tempHand) || isSplit(tempHand) || (calculateHandValue(tempHand) >= dealerValue && calculateHandValue(tempHand) <= 21)) {
+            addCard(shoe, tempHand.pop())
+            newCard = dealCard(shoe)
+            tempHand.push(newCard)
+        }
+        hand.push(newCard)
+    } else {
+        const tempHand = JSON.parse(JSON.stringify(hand))
+        let newCard = dealCard(shoe)
+        tempHand.push(newCard)
+        while (calculateHandValue(tempHand) >= dealerValue && calculateHandValue(tempHand) <= 21) {
+            addCard(shoe, tempHand.pop())
+            newCard = dealCard(shoe)
+            tempHand.push(newCard)
+        }
+        hand.push(newCard)
+    }
 }
 
 function dealPlayerSameValueDraw(shoe, hand, dealerValue) {
@@ -393,7 +501,7 @@ function dealPlayerSameValueDraw(shoe, hand, dealerValue) {
     }
 }
 
-function dealPlayerBasic(shoe, hand) {
+function dealPlayerBasic(shoe, hand, dealerValue, playerWin) {
     if (hand.length == 0) {
         hand.push(dealCard(shoe))
     } else if (hand.length == 1) {
@@ -596,25 +704,62 @@ function dealPlayerSplitDouble(shoe, playerHands, maxSplit, maxDouble) {
     }
 }
 
-function getPlayerInitCards(gamePath, gameResult, shoe) {
+function dealDealerExactValue(shoe, hand, dealerValue) {
+    if (hand.length == 0) {
+        hand.push(dealCard(shoe))
+    } else if (hand.length == 1) {
+        const tempHand = JSON.parse(JSON.stringify(hand))
+        let newCard = dealCard(shoe)
+        tempHand.push(newCard)
+        while (isBJ(tempHand) || calculateHandValue(tempHand) > dealerValue
+            || (calculateHandValue(tempHand) >= 17 && calculateHandValue(tempHand) != dealerValue)) {
+            addCard(shoe, tempHand.pop())
+            newCard = dealCard(shoe)
+            tempHand.push(newCard)
+        }
+        hand.push(newCard)
+    } else {
+        const tempHand = JSON.parse(JSON.stringify(hand))
+        let newCard = dealCard(shoe)
+        tempHand.push(newCard)
+        while (calculateHandValue(tempHand) > dealerValue
+            || (calculateHandValue(tempHand) >= 17 && calculateHandValue(tempHand) != dealerValue)) {
+            addCard(shoe, tempHand.pop())
+            newCard = dealCard(shoe)
+            tempHand.push(newCard)
+        }
+        hand.push(newCard)
+    }
+}
 
-    // 3-17 and cannot double
-    if (gameResult == "LOST") {
-
-        // 2-20 
-    } else if (gameResult == "SAME_VALUE_DRAW") {
-
-        // 2-21
-    } else if (gameResult == "22_DRAW") {
-
-        // 2-21
-    } else if (gameResult == "WIN") {
-
+function dealDealerBurst(shoe, hand) {
+    if (hand.length == 0) {
+        hand.push(dealCard(shoe))
+    } else if (hand.length == 1) {
+        const tempHand = JSON.parse(JSON.stringify(hand))
+        let newCard = dealCard(shoe)
+        tempHand.push(newCard)
+        while (isBJ(tempHand) || calculateHandValue(tempHand) > 16) {
+            addCard(shoe, tempHand.pop())
+            newCard = dealCard(shoe)
+            tempHand.push(newCard)
+        }
+        hand.push(newCard)
+    } else {
+        const tempHand = JSON.parse(JSON.stringify(hand))
+        let newCard = dealCard(shoe)
+        tempHand.push(newCard)
+        while (calculateHandValue(tempHand) > 16 && calculateHandValue(tempHand) < 22) {
+            addCard(shoe, tempHand.pop())
+            newCard = dealCard(shoe)
+            tempHand.push(newCard)
+        }
+        hand.push(newCard)
     }
 }
 
 // Function to get bet amount from player
-function getBetAmount(player, isFirstBet) {
+function getBetSize(player, isFirstBet) {
     let bet;
     if (isFirstBet) {
         console.log('Since this is your first bet, you are eligible for a special bonus bet!');
@@ -635,15 +780,25 @@ function getBetAmount(player, isFirstBet) {
 
 // Main game function
 function playBlackjack() {
-    let player = getPlayer();
+    let playerId = 200
+    if (DEBUG) {
+        playerId = DEBUG_PLAYER_ID
+    }
+    let player = getPlayer(playerId);
     let shoe = shuffleShoe(createShoe());
     let playerHands = []
+    let dealerHand = []
 
     // Check if player is making their first bet
     const firstFiveBets = player.hands > 5 ? false : true
     // Get bet amount from player
-    // const betAmount = getBetAmount(player, firstBet);
-    const betSize = 500
+    let betSize
+    if (DEBUG) {
+        betSize = DEBUG_BETSIZE
+    } else {
+        betSize = getBetSize(player, firstBet);
+    }
+
     console.log(`You have placed a bet of ${betSize}.`);
 
     if (firstFiveBets) {
@@ -667,47 +822,89 @@ function playBlackjack() {
             }
         }
 
-        gamePath = "LOSE"
+        let noOfWinBets = Math.floor(winnablePot / adjustedBetSize)
+        if (DEBUG) {
+            noOfWinBets = DEBUG_NO_OF_WIN_BETS
+        }
+        let playerWin = true
+        if (adjustedBetSize > winnablePot) {
+            playerWin = false
+        }
+        if (DEBUG) {
+            playerWin = DEBUG_PLAYER_WIN
+        }
+
+        if (DEBUG) {
+            gamePath = DEBUG_GAME_PATH
+        }
 
         let dealerValue
-        let canWin = false
-        let canLose = false
-        let canDraw = false
-        let canDouble = false
-        let canSplit = false
-        let canBJ = false
-
         if (gamePath == "LOSE") {
             dealerValue = getRandomInt(17, 21)
-            canLose = true
         } else if (gamePath == "22_DRAW") {
             dealerValue = 22
         } else if (gamePath == "SAME_VALUE_DRAW") {
             dealerValue = getRandomInt(17, 21)
         } else if (gamePath == "BASIC") {
-            dealerValue = "RANDOM"
+            if (playerWin) {
+                dealerValue = getRandomFromArr([17, 18, 19, 20, "BURST"])
+            } else {
+                dealerValue = getRandomInt(17, 21)
+            }
         } else if (gamePath == "BJ") {
-            dealerValue = "RANDOM"
+            dealerValue = getRandomInt(17, 21)
         } else if (gamePath == "FREE_DOUBLE") {
-            dealerValue = "RANDOM"
-        } else if (gamePath == "FREE_2_SPLIT") {
-            dealerValue = "RANDOM"
+            if (playerWin) {
+                dealerValue = getRandomFromArr([17, 18, 19, 20, "BURST"])
+            } else {
+                dealerValue = getRandomInt(17, 21)
+            }
+        } else { // 3 case for split, all player win, all dealer win, some win some lost
+            if (playerWin) {
+                isAllPlayerWin = true
+            }
+
+            if (noOfWinBets == 0) {
+                isAllDealerWin = true
+            }
+
+            let isAllPlayerWin = false
+            let isAllDealerWin = false
+            if (isAllPlayerWin) {
+                dealerValue = getRandomFromArr([17, 18, 19, 20, "BURST"])
+            } else if (isAllDealerWin) {
+                dealerValue = getRandomInt(17, 21)
+            } else {
+                dealerValue = getRandomInt(17, 20)
+            }
         }
 
-        playerHands = [{
-            "live": true,
-            "cards": ["7"]
-        }];
-        // dealPlayerSplitDouble(shoe, playerHands, 2, 2)
-        dealerValue = 17
+        if (DEBUG) {
+            dealerValue = DEBUG_DEALER_VALUE
+        }
+        console.log("dealerValue:", dealerValue)
+        // ALIVE, STAND, DOUBLE, BURST
+        if (DEBUG) {
+            playerHands = [{
+                "live": true,
+                "cards": [],
+                "status": "ALIVE"
+            }];
+            handlePlayerHit(playerHands, 0, shoe, gamePath, dealerValue, noOfWinBets, 0)
+        } else {
+
+        }
 
         while (isPlayerLive(playerHands)) {
             printPlayerHands(playerHands);
             let currentHandIndex = getCurrentAliveHandIndex(playerHands);
             console.log(`\nPlaying hand ${currentHandIndex + 1}:`);
-            playerTurn(playerHands, currentHandIndex, shoe);
+            noOfWinBets = playerTurn(playerHands, currentHandIndex, shoe, gamePath, dealerValue, noOfWinBets);
         }
+        printPlayerHands(playerHands);
         console.log("End of player turn");
+
+        dealerTurn(dealerHand, shoe, gamePath, dealerValue)
         return
 
     } else {
