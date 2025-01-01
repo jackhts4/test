@@ -5,10 +5,10 @@ const DEBUG = true
 const DEBUG_PLAYER_ID = 100
 const DEBUG_BETSIZE = 500
 
-const DEBUG_GAME_PATH = "FREE_4_SPLIT"
-const DEBUG_DEALER_VALUE = 20
-const DEBUG_PLAYER_WIN = false
-const DEBUG_NO_OF_WIN_BETS = 1 // if win all split4 double4 = 8, win all split4 double3 = 7, win double = 2
+const DEBUG_GAME_PATH = "FREE_4_SPLIT" 
+const DEBUG_DEALER_VALUE = 29
+const DEBUG_PLAYER_WIN = true
+const DEBUG_NO_OF_WIN_BETS = 8 // if win all split4 double4 = 8, win all split4 double3 = 7, win double = 2
 
 const VALUES = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
 const BET_PATHS = [
@@ -61,7 +61,15 @@ function dealCard(shoe) {
 }
 
 function addCard(shoe, card) {
+    const oldShoe = JSON.parse(JSON.stringify(shoe))
     shoe.push(card)
+    if(!card){
+        console.log("card", card)
+    }
+    if(shoe.includes(undefined)){
+        console.log(oldShoe)
+        console.log(shoe)
+    }
     shuffleShoe(shoe)
 }
 
@@ -106,22 +114,27 @@ function calculateHandValue(hand) {
 function getCurrentWinBets(hands, dealerValue) {
     let result = 0
     for (let i = 0; i < hands.length; i++) {
+        const live = hands[i]["live"]
         const status = hands[i]["status"]
         const hand = hands[i]["cards"]
-        if (status == "ALIVE") {
-            if (calculateHandValue(hand) >= dealerValue) {
-                result = result + 1
-            }
-        } else if (status == "STAND") {
-            if (calculateHandValue(hand) >= dealerValue) {
-                result = result + 1
-            }
-        } else if (status == "DOUBLE") {
-            if (calculateHandValue(hand) >= dealerValue) {
-                result = result + 2
-            }
-        } else if (status == "BURST") {
+        if (!live) {
+            if (status == "ALIVE" || status == "BURST") {
 
+            } else if (status == "STAND") {
+                if (calculateHandValue(hand) >= dealerValue) {
+                    result = result + 1
+                    if (i == 0) {
+                        result = result + 1
+                    }
+                }
+            } else if (status == "DOUBLE") {
+                if (calculateHandValue(hand) >= dealerValue) {
+                    result = result + 2
+                    if (i == 0) {
+                        result = result + 1
+                    }
+                }
+            }
         }
     }
     return result
@@ -139,7 +152,7 @@ function printPlayerHands(playerHands) {
     for (let i = 0; i < playerHands.length; i++) {
         const handDescription = playerHands[i]["cards"].map(card => `${card}`).join(', ');
         const handValue = calculateHandValue(playerHands[i]["cards"])
-        console.log(`Player Hand ${i + 1} - ${playerHands[i]["live"] ? "Alive" : "End action"} - ${handDescription} (${handValue})`);
+        console.log(`Hand ${i + 1} - ${playerHands[i]["live"] ? "In action" : "End action"} - ${playerHands[i]["status"]} - ${playerHands[i]["assigned"] ? "Expected: " + playerHands[i]["assigned"] + "- " : ""}${handDescription} (${handValue})`);
     }
 }
 
@@ -185,8 +198,8 @@ function playerTurn(hands, index, shoe, gamePath, dealerValue, noOfWinBets) {
     if (options[choice] === 'Hit') {
         handlePlayerHit(hands, index, shoe, gamePath, dealerValue, noOfWinBets, currentWinBets)
     } else if (options[choice] === 'Stand') {
-        hands[index]["live"] = false;
         hands[index]["status"] = "STAND";
+        hands[index]["live"] = false;
     } else if (options[choice] === 'Free Double') {
         hands[index]["status"] = "DOUBLE";
         handlePlayerHit(hands, index, shoe, gamePath, dealerValue, noOfWinBets, currentWinBets)
@@ -202,15 +215,29 @@ function playerTurn(hands, index, shoe, gamePath, dealerValue, noOfWinBets) {
     if (calculateHandValue(hands[index]["cards"]) > 21) {
         hands[index]["live"] = false;
         hands[index]["status"] = "BURST";
+    } else if (calculateHandValue(hands[index]["cards"]) == 21 && hands[index]["status"] == "ALIVE") {
+        if (hands[index]["cards"].length == 2) { // handle BJ case
+            hands[index]["status"] = "BJ";
+        } else {
+            hands[index]["status"] = "STAND";
+        }
+        hands[index]["live"] = false;
     }
 }
 
 function handlePlayerHit(hands, index, shoe, gamePath, dealerValue, noOfWinBets, currentWinBets) {
     const hand = hands[index]["cards"]
+    const status = hands[index]["status"]
+
+    let incrementForFirstHand = 0
+    if (index == 0) {
+        incrementForFirstHand = 1
+    }
+
     if (gamePath == "LOSE") {
         dealPlayerLose(shoe, hand, dealerValue)
     } else if (gamePath == "22_DRAW") {
-        dealPlayerRandom(shoe, hand)
+        dealPlayerWin(shoe, hand, "BURST")
     } else if (gamePath == "SAME_VALUE_DRAW") {
         dealPlayerSameValueDraw(shoe, hand, dealerValue)
     } else if (gamePath == "BASIC") {
@@ -222,22 +249,59 @@ function handlePlayerHit(hands, index, shoe, gamePath, dealerValue, noOfWinBets,
     } else if (gamePath == "BJ") {
         dealPlayerBJ(shoe, hand)
     } else if (gamePath == "FREE_DOUBLE") {
-        if (noOfWinBets >= currentWinBets + 2) {
-            dealPlayerDoubleWin(shoe, hand, dealerValue)
-        } else {
-            dealPlayerDoubleLose(shoe, hand, dealerValue)
+        if(hand.length >= 2 && status == "ALIVE"){ // only case when 
+            if (noOfWinBets >= currentWinBets + 1 + incrementForFirstHand) {
+                dealPlayerWin(shoe, hand, dealerValue)
+            } else {
+                dealPlayerLose(shoe, hand, dealerValue)
+            }
+        }else{
+            if (noOfWinBets >= currentWinBets + 2 + incrementForFirstHand) {
+                dealPlayerDoubleWin(shoe, hand, dealerValue)
+            } else {
+                dealPlayerDoubleLose(shoe, hand, dealerValue)
+            }
         }
     } else {
         pathArr = gamePath.split("_")
         pathArrLen = pathArr.length
 
+        const firstHandWin = 1
         const maxSplit = pathArr[1]
         const maxDouble = pathArrLen == 3 ? 0 : pathArr[3]
+        const maxWinBet = maxSplit + maxDouble + firstHandWin
+        let willLose = false // if it has chance to lose, we cannot assign >= 9 cards to it, as 99 stands = 18 which may be > dealerValue
+        if (maxWinBet > noOfWinBets) {
+            willLose = true
+        }
 
-        if (noOfWinBets > currentWinBets) {
-            dealPlayerSplitDoubleWin(shoe, hands, maxSplit, maxDouble, dealerValue, noOfWinBets, currentWinBets)
+        if (hands[index]["assigned"]) {
+            if (hands[index]["assigned"] == "WIN") {
+                dealPlayerSplitDoubleWin(shoe, hands, maxSplit, maxDouble, dealerValue, noOfWinBets, currentWinBets, willLose, incrementForFirstHand)
+            } else {
+                dealPlayerSplitDoubleLose(shoe, hands, maxSplit, maxDouble, dealerValue)
+            }
         } else {
-            dealPlayerSplitDoubleLose(shoe, hands, maxSplit, maxDouble, dealerValue)
+            // decide whether win or lose to that hand
+            const winHandsLeftExcludeCurrent = maxSplit - index - 1 // excluding current hand
+            if (noOfWinBets - currentWinBets - incrementForFirstHand > winHandsLeftExcludeCurrent) { // it must win now if no remaining hand to win and if can win now
+                hands[index]["assigned"] = "WIN"
+                dealPlayerSplitDoubleWin(shoe, hands, maxSplit, maxDouble, dealerValue, noOfWinBets, currentWinBets, willLose)
+            } else { // if have remaining hand
+                if (noOfWinBets > currentWinBets + incrementForFirstHand) { // have win bet to win
+                    let prob = 0.5 // can optimize
+                    if (Math.random() <= prob) {
+                        hands[index]["assigned"] = "WIN"
+                        dealPlayerSplitDoubleWin(shoe, hands, maxSplit, maxDouble, dealerValue, noOfWinBets, currentWinBets, willLose)
+                    } else {
+                        hands[index]["assigned"] = "LOSE"
+                        dealPlayerSplitDoubleLose(shoe, hands, maxSplit, maxDouble, dealerValue)
+                    }
+                } else {
+                    hands[index]["assigned"] = "LOSE"
+                    dealPlayerSplitDoubleLose(shoe, hands, maxSplit, maxDouble, dealerValue)
+                }
+            }
         }
     }
 }
@@ -420,7 +484,7 @@ function dealPlayerLose(shoe, hand, dealerValue) {
         const tempHand = JSON.parse(JSON.stringify(hand))
         let newCard = dealCard(shoe)
         tempHand.push(newCard)
-        while (isBJ(tempHand) || isDouble(tempHand) || isSplit(tempHand) || (calculateHandValue(tempHand) >= dealerValue && calculateHandValue(tempHand) <= 21)) {
+        while (isBJ(tempHand) || isDouble(tempHand) || isSplit(tempHand) || (dealerValue <= calculateHandValue(tempHand) && calculateHandValue(tempHand) <= 21)) {
             addCard(shoe, tempHand.pop())
             newCard = dealCard(shoe)
             tempHand.push(newCard)
@@ -430,7 +494,7 @@ function dealPlayerLose(shoe, hand, dealerValue) {
         const tempHand = JSON.parse(JSON.stringify(hand))
         let newCard = dealCard(shoe)
         tempHand.push(newCard)
-        while (calculateHandValue(tempHand) >= dealerValue && calculateHandValue(tempHand) <= 21) {
+        while (dealerValue <= calculateHandValue(tempHand) && calculateHandValue(tempHand) <= 21) {
             addCard(shoe, tempHand.pop())
             newCard = dealCard(shoe)
             tempHand.push(newCard)
@@ -446,7 +510,13 @@ function dealPlayerWin(shoe, hand, dealerValue) {
         const tempHand = JSON.parse(JSON.stringify(hand))
         let newCard = dealCard(shoe)
         tempHand.push(newCard)
-        while (isBJ(tempHand) || isDouble(tempHand) || isSplit(tempHand) || (calculateHandValue(tempHand) <= dealerValue && calculateHandValue(tempHand) >= 17)) {
+
+        let valueToLarger = dealerValue
+        if (dealerValue == "BURST") {
+            valueToLarger = 16
+        }
+        while (isBJ(tempHand) || isDouble(tempHand) || isSplit(tempHand)
+            || (calculateHandValue(tempHand) >= 17 && calculateHandValue(tempHand) <= valueToLarger)) { // redraw if player >= 17 and smaller than dealer
             addCard(shoe, tempHand.pop())
             newCard = dealCard(shoe)
             tempHand.push(newCard)
@@ -456,41 +526,20 @@ function dealPlayerWin(shoe, hand, dealerValue) {
         const tempHand = JSON.parse(JSON.stringify(hand))
         let newCard = dealCard(shoe)
         tempHand.push(newCard)
-        while ((calculateHandValue(tempHand) <= dealerValue && calculateHandValue(tempHand) >= 17)
-            || calculateHandValue(tempHand) > 21) {
-            addCard(shoe, tempHand.pop())
-            newCard = dealCard(shoe)
-            tempHand.push(newCard)
-        }
-        hand.push(newCard)
-    } else {
-        hand.push(dealCard(shoe))
-    }
-}
 
-function dealPlayerRandom(shoe, hand, playerWin) {
-    if (hand.length == 0) {
-        hand.push(dealCard(shoe))
-    } else if (hand.length == 1) {
-        const tempHand = JSON.parse(JSON.stringify(hand))
-        let newCard = dealCard(shoe)
-        tempHand.push(newCard)
-        while (isBJ(tempHand) || isDouble(tempHand) || isSplit(tempHand) || (calculateHandValue(tempHand) >= dealerValue && calculateHandValue(tempHand) <= 21)) {
+        let valueToLarger = dealerValue
+        if (dealerValue == "BURST") {
+            valueToLarger = 16
+        }
+        while (calculateHandValue(tempHand) > 21 
+        || calculateHandValue(tempHand) >= 17 && calculateHandValue(tempHand) <= valueToLarger) { // redraw if player 
             addCard(shoe, tempHand.pop())
             newCard = dealCard(shoe)
             tempHand.push(newCard)
         }
         hand.push(newCard)
     } else {
-        const tempHand = JSON.parse(JSON.stringify(hand))
-        let newCard = dealCard(shoe)
-        tempHand.push(newCard)
-        while (calculateHandValue(tempHand) >= dealerValue && calculateHandValue(tempHand) <= 21) {
-            addCard(shoe, tempHand.pop())
-            newCard = dealCard(shoe)
-            tempHand.push(newCard)
-        }
-        hand.push(newCard)
+        hand.push(dealCard(shoe))
     }
 }
 
@@ -501,7 +550,8 @@ function dealPlayerSameValueDraw(shoe, hand, dealerValue) {
         const tempHand = JSON.parse(JSON.stringify(hand))
         let newCard = dealCard(shoe)
         tempHand.push(newCard)
-        while (isBJ(tempHand) || isDouble(tempHand) || isSplit(tempHand) || calculateHandValue(tempHand) > dealerValue) {
+        while (isBJ(tempHand) || isDouble(tempHand) || isSplit(tempHand)
+            || (calculateHandValue(tempHand) >= 17 && calculateHandValue(tempHand) != dealerValue)) {
             addCard(shoe, tempHand.pop())
             newCard = dealCard(shoe)
             tempHand.push(newCard)
@@ -517,7 +567,7 @@ function dealPlayerSameValueDraw(shoe, hand, dealerValue) {
             tempHand.push(newCard)
         }
         hand.push(newCard)
-    } else if (calculateHandValue(hand) == dealerValue) { // burst it
+    } else { // burst it
         const tempHand = JSON.parse(JSON.stringify(hand))
         let newCard = dealCard(shoe)
         tempHand.push(newCard)
@@ -530,39 +580,27 @@ function dealPlayerSameValueDraw(shoe, hand, dealerValue) {
     }
 }
 
-function dealPlayerBasic(shoe, hand, dealerValue, playerWin) {
+function dealPlayerBJ(shoe, hand) {
     if (hand.length == 0) {
-        hand.push(dealCard(shoe))
-    } else if (hand.length == 1) {
         const tempHand = JSON.parse(JSON.stringify(hand))
         let newCard = dealCard(shoe)
         tempHand.push(newCard)
-        while (isBJ(tempHand) || isDouble(tempHand) || isSplit(tempHand)) {
-            addCard(shoe, tempHand.pop())
+        while (!["10", "J", "Q", "K", "A"].includes(tempHand[0])) {
+            addCard(shoe, newCard)
             newCard = dealCard(shoe)
             tempHand.push(newCard)
         }
         hand.push(newCard)
     } else {
-        hand.push(dealCard(shoe))
-    }
-}
-
-function dealPlayerBJ(shoe, hand) {
-    if (hand.length == 0) {
-        let newCard = dealCard(shoe)
-        while (!["10", "J", "Q", "K", "A"].includes(newCard)) {
-            addCard(shoe, newCard)
-            newCard = dealCard(shoe)
-        }
-        hand.push(newCard)
-    } else {
         const holdCard = hand[0]
-        let newCard = dealCard(shoe)
         const cardsPool = holdCard == "A" ? ["10", "J", "Q", "K"] : ["A"]
-        while (!cardsPool.includes(newCard)) {
+        const tempHand = JSON.parse(JSON.stringify(hand))
+        let newCard = dealCard(shoe)
+        tempHand.push(newCard)
+        while (!cardsPool.includes(tempHand[1])) {
             addCard(shoe, newCard)
             newCard = dealCard(shoe)
+            tempHand.push(newCard)
         }
         hand.push(newCard)
     }
@@ -573,8 +611,9 @@ function dealPlayerDoubleWin(shoe, hand, dealerValue) {
     if (hand.length == 0) {
         const tempHand = JSON.parse(JSON.stringify(hand))
         let newCard = dealCard(shoe)
-        // loop until new card not A
-        while (["10", "J", "Q", "K", "A"].includes(newCard)) {
+        tempHand.push(newCard)
+        // loop until new card not A/10
+        while (["10", "J", "Q", "K", "A"].includes(tempHand[0])) {
             addCard(shoe, tempHand.pop())
             newCard = dealCard(shoe)
             tempHand.push(newCard)
@@ -603,7 +642,7 @@ function dealPlayerDoubleWin(shoe, hand, dealerValue) {
         tempHand.push(newCard)
         let valueToLarger = dealerValue
         if (dealerValue == "BURST") {
-            valueToLarger = 17
+            valueToLarger = 16
         }
         while (calculateHandValue(tempHand) <= valueToLarger || calculateHandValue(tempHand) > 21) {
             addCard(shoe, tempHand.pop())
@@ -620,8 +659,9 @@ function dealPlayerDoubleLose(shoe, hand, dealerValue) {
     if (hand.length == 0) {
         const tempHand = JSON.parse(JSON.stringify(hand))
         let newCard = dealCard(shoe)
+        tempHand.push(newCard)
         // loop until new card not A
-        while (newCard == "A") {
+        while (["10", "J", "Q", "K", "A"].includes(tempHand[0])) {
             addCard(shoe, tempHand.pop())
             newCard = dealCard(shoe)
             tempHand.push(newCard)
@@ -643,7 +683,7 @@ function dealPlayerDoubleLose(shoe, hand, dealerValue) {
         const tempHand = JSON.parse(JSON.stringify(hand))
         let newCard = dealCard(shoe)
         tempHand.push(newCard)
-        while (calculateHandValue(tempHand) > dealerValue && calculateHandValue(tempHand) <= 21) {
+        while (calculateHandValue(tempHand) >= dealerValue && calculateHandValue(tempHand) <= 21) {
             addCard(shoe, tempHand.pop())
             newCard = dealCard(shoe)
             tempHand.push(newCard)
@@ -652,27 +692,47 @@ function dealPlayerDoubleLose(shoe, hand, dealerValue) {
     }
 }
 
-function dealPlayerSplitDoubleWin(shoe, playerHands, maxSplit, maxDouble, dealerValue, noOfWinBets, currentWinBets) {
+function dealPlayerSplitDoubleWin(shoe, playerHands, maxSplit, maxDouble, dealerValue, noOfWinBets, currentWinBets, willLose, incrementForFirstHand) {
     let currentHandIndex = getCurrentAliveHandIndex(playerHands);
     const hand = playerHands[currentHandIndex]["cards"]
 
     if (hand.length == 0) {
-        if (noOfWinBets >= currentWinBets + 2) {
-            dealPlayerDoubleWin(shoe, hand, dealerValue)
+        if (noOfWinBets >= (currentWinBets + 2 + incrementForFirstHand) && !willLose) {
+            const tempHand = JSON.parse(JSON.stringify(hand))
+            let newCard = dealCard(shoe)
+            tempHand.push(newCard)
+            // loop until new card not A
+            while (["A"].includes(tempHand[0])) {
+                addCard(shoe, tempHand.pop())
+                newCard = dealCard(shoe)
+                tempHand.push(newCard)
+            }
+            hand.push(newCard)
+
         } else {
-            dealPlayerDoubleLose(shoe, hand, dealerValue)
+            const tempHand = JSON.parse(JSON.stringify(hand))
+            let newCard = dealCard(shoe)
+            tempHand.push(newCard)
+            // loop until new card not A
+            while (["9", "10", "J", "Q", "K", "A"].includes(tempHand[0])) {
+                addCard(shoe, tempHand.pop())
+                newCard = dealCard(shoe)
+                tempHand.push(newCard)
+            }
+            hand.push(newCard)
+
         }
     } else if (hand.length == 1) {
         if (playerHands.length < maxSplit) { // still can split
             let prob
-            if (currentHandIndex == playerHands.length) { // must split as it is current last hand
+            if (currentHandIndex + 1 == playerHands.length) { // must split as it is current last hand
                 prob = 1
-            } else if (currentHandIndex == 0) { // first hand must split
+            } else if (playerHands.length == 1 && currentHandIndex == 0) { // first hand must split
                 prob = 1
             } else { // 50% to split
                 prob = 0.5
             }
-
+            // console.log("[DEBUG] split prob =", prob)
             if (Math.random() <= prob) { // add split card
                 const splitCard = playerHands[0]["cards"][0]
                 let newCard = dealCard(shoe)
@@ -694,7 +754,7 @@ function dealPlayerSplitDoubleWin(shoe, playerHands, maxSplit, maxDouble, dealer
                     }
 
                     if (Math.random() <= prob) { // add double card
-                        if (noOfWinBets >= currentWinBets + 2) {
+                        if (noOfWinBets >= (currentWinBets + 2 + incrementForFirstHand)) {
                             dealPlayerDoubleWin(shoe, hand, dealerValue)
                         } else {
                             dealPlayerDoubleLose(shoe, hand, dealerValue)
@@ -719,7 +779,7 @@ function dealPlayerSplitDoubleWin(shoe, playerHands, maxSplit, maxDouble, dealer
                 }
 
                 if (Math.random() <= prob) { // add double card
-                    if (noOfWinBets >= currentWinBets + 2) {
+                    if (noOfWinBets >= (currentWinBets + 2 + incrementForFirstHand)) {
                         dealPlayerDoubleWin(shoe, hand, dealerValue)
                     } else {
                         dealPlayerDoubleLose(shoe, hand, dealerValue)
@@ -734,7 +794,11 @@ function dealPlayerSplitDoubleWin(shoe, playerHands, maxSplit, maxDouble, dealer
         }
     } else {
         if (playerHands[currentHandIndex]["status"] == "DOUBLE") {
-            dealPlayerDoubleWin(shoe, hand, dealerValue)
+            if (noOfWinBets >= (currentWinBets + 2 + incrementForFirstHand)) {
+                dealPlayerDoubleWin(shoe, hand, dealerValue)
+            } else {
+                dealPlayerDoubleLose(shoe, hand, dealerValue)
+            }
         } else {
             dealPlayerWin(shoe, hand, dealerValue)
         }
@@ -747,24 +811,27 @@ function dealPlayerSplitDoubleLose(shoe, playerHands, maxSplit, maxDouble, deale
     const hand = playerHands[currentHandIndex]["cards"]
 
     if (hand.length == 0) {
+        const tempHand = JSON.parse(JSON.stringify(hand))
         let newCard = dealCard(shoe)
-        while (!cardsPool.includes(newCard)) {
+        tempHand.push(newCard)
+        while (!cardsPool.includes(tempHand[0])) {
             addCard(shoe, newCard)
             newCard = dealCard(shoe)
+            tempHand.push(newCard)
         }
         hand.push(newCard)
     } else if (hand.length == 1) {
         if (playerHands.length < maxSplit) { // still can split
             let prob
 
-            if (currentHandIndex == playerHands.length) { // must split as it is current last hand
+            if (currentHandIndex + 1 == playerHands.length) { // must split as it is current last hand
                 prob = 1
-            } else if (currentHandIndex == 0) { // first hand must split
+            } else if (playerHands.length == 1 && currentHandIndex == 0) { // first hand must split
                 prob = 1
             } else { // 50% to split
                 prob = 0.5
             }
-
+            // console.log("[DEBUG] split prob =", prob)
             if (Math.random() <= prob) { // add split card
                 const splitCard = playerHands[0]["cards"][0]
                 let newCard = dealCard(shoe)
@@ -843,8 +910,7 @@ function dealDealerExactValue(shoe, hand, dealerValue) {
         const tempHand = JSON.parse(JSON.stringify(hand))
         let newCard = dealCard(shoe)
         tempHand.push(newCard)
-        while (calculateHandValue(tempHand) > dealerValue
-            || (calculateHandValue(tempHand) >= 17 && calculateHandValue(tempHand) != dealerValue)) {
+        while ((calculateHandValue(tempHand) >= 17 && calculateHandValue(tempHand) != dealerValue)) {
             addCard(shoe, tempHand.pop())
             newCard = dealCard(shoe)
             tempHand.push(newCard)
@@ -995,6 +1061,7 @@ function playBlackjack() {
             } else if (isAllDealerWin) {
                 dealerValue = getRandomInt(17, 21)
             } else {
+                console.log("[DEBUG] win some lose some")
                 dealerValue = getRandomInt(17, 20)
             }
         }
@@ -1023,7 +1090,6 @@ function playBlackjack() {
         }
         printPlayerHands(playerHands);
         console.log("End of player turn");
-
         dealerTurn(dealerHand, shoe, gamePath, dealerValue)
         return
 
